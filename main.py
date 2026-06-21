@@ -1,13 +1,11 @@
 """
 main.py — FastAPI entry point for the Solo Leveling Guild API.
-
-Run locally:
-    uvicorn main:app --reload
 """
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy.orm import Session
 
 import models
@@ -63,12 +61,11 @@ def create_guild(payload: GuildCreate, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# App lifecycle — always uses db_module.engine so tests can swap it
+# App lifecycle
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Use the engine from the module directly (tests patch db_module.engine)
     models.Base.metadata.create_all(bind=db_module.engine)
     yield
 
@@ -84,6 +81,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Allow all hosts — required for Railway's proxy
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["*"]
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -93,8 +96,8 @@ app.add_middleware(
 )
 
 app.include_router(users_router)
-app.include_router(guilds_seed_router)  # POST /guilds/ — must come BEFORE guild_router
-app.include_router(guild_router)        # POST /guilds/join  GET /guilds/{id}/members  GET /guilds/rankings
+app.include_router(guilds_seed_router)
+app.include_router(guild_router)
 
 
 @app.get("/", tags=["System"], summary="Health check")
