@@ -1,14 +1,15 @@
 """
 main.py — FastAPI entry point for the Solo Leveling Guild API.
-
-Run locally:
-    uvicorn main:app --reload
 """
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+<<<<<<< HEAD
 from passlib.context import CryptContext
+=======
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+>>>>>>> afc1b29b1cf068c5111c89cc7f41f1f6cea44e0b
 from sqlalchemy.orm import Session
 
 import models
@@ -115,6 +116,12 @@ app = FastAPI(
     description="Backend for managing hunter guilds.",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+# Allow all hosts — required for Railway's proxy
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["*"]
 )
 
 app.add_middleware(
