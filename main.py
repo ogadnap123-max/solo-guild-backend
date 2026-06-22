@@ -8,13 +8,29 @@ Run locally:
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 import models
 import database as db_module
 from database import get_db
-from schemas import UserCreate, UserOut, GuildCreate, GuildOut
+from schemas import UserCreate, UserLogin, UserOut, GuildCreate, GuildOut
 from routers.guilds import router as guild_router
+
+# ---------------------------------------------------------------------------
+# Password hashing
+# ---------------------------------------------------------------------------
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def hash_password(plain: str) -> str:
+    return pwd_context.hash(plain)
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
+
 
 # ---------------------------------------------------------------------------
 # Users router
@@ -25,13 +41,31 @@ users_router = APIRouter(prefix="/users", tags=["🗡️ Hunters"])
 
 @users_router.post("/", response_model=UserOut, status_code=201, summary="Register a hunter")
 def create_user(payload: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(models.User).filter(models.User.username == payload.username).first()
-    if existing:
+    if db.query(models.User).filter(models.User.username == payload.username).first():
         raise HTTPException(status_code=409, detail=f"Username '{payload.username}' is taken.")
-    user = models.User(**payload.model_dump())
+    if db.query(models.User).filter(models.User.email == payload.email).first():
+        raise HTTPException(status_code=409, detail=f"Email '{payload.email}' is already registered.")
+
+    data = payload.model_dump()
+    plain_password = data.pop("password")           # remove plain text
+    data["password_hash"] = hash_password(plain_password)
+
+    user = models.User(**data)
     db.add(user)
     db.commit()
     db.refresh(user)
+    return user
+
+
+@users_router.post("/login", response_model=UserOut, summary="Login a hunter")
+def login_user(payload: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(
+        models.User.username == payload.username
+    ).first()
+
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+
     return user
 
 
@@ -63,12 +97,11 @@ def create_guild(payload: GuildCreate, db: Session = Depends(get_db)):
 
 
 # ---------------------------------------------------------------------------
-# App lifecycle — always uses db_module.engine so tests can swap it
+# App lifecycle
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Use the engine from the module directly (tests patch db_module.engine)
     models.Base.metadata.create_all(bind=db_module.engine)
     yield
 
@@ -93,8 +126,8 @@ app.add_middleware(
 )
 
 app.include_router(users_router)
-app.include_router(guilds_seed_router)  # POST /guilds/ — must come BEFORE guild_router
-app.include_router(guild_router)        # POST /guilds/join  GET /guilds/{id}/members  GET /guilds/rankings
+app.include_router(guilds_seed_router)
+app.include_router(guild_router)
 
 
 @app.get("/", tags=["System"], summary="Health check")

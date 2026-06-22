@@ -1,11 +1,5 @@
 """
 models.py — SQLAlchemy ORM models for the Solo Leveling Guild system.
-
-Tables
-------
-users        — hunters/players (rank, level, class, XP)
-guilds       — named guilds with a rank emblem and description
-guild_members — join table that links a user to exactly one guild
 """
 
 from datetime import datetime, timezone
@@ -16,34 +10,24 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from database import Base
 
-
-# ---------------------------------------------------------------------------
-# Hunter ranks — mirrors the Solo Leveling rank system
-# ---------------------------------------------------------------------------
 HUNTER_RANKS = ("E", "D", "C", "B", "A", "S", "National-Level", "Monarch")
 
 GUILD_RANKS = (
-    "Bronze Guild",
-    "Silver Guild",
-    "Gold Guild",
-    "Platinum Guild",
-    "Diamond Guild",
-    "S-Rank Guild",
-    "Shadow Monarch Guild",
+    "Bronze Guild", "Silver Guild", "Gold Guild", "Platinum Guild",
+    "Diamond Guild", "S-Rank Guild", "Shadow Monarch Guild",
 )
 
 
 class User(Base):
-    """A registered hunter (player account)."""
-
     __tablename__ = "users"
 
-    id         = Column(Integer, primary_key=True, index=True)
-    username   = Column(String(64), unique=True, nullable=False, index=True)
-    email      = Column(String(128), unique=True, nullable=False)
+    id            = Column(Integer, primary_key=True, index=True)
+    username      = Column(String(64), unique=True, nullable=False, index=True)
+    email         = Column(String(128), unique=True, nullable=False)
+    password_hash = Column(String(128), nullable=False, default="")  # ← NEW
 
     # RPG stats
-    hunter_rank  = Column(String(32), nullable=False, default="E")   # E → Monarch
+    hunter_rank  = Column(String(32), nullable=False, default="E")
     hunter_class = Column(String(64), nullable=False, default="Fighter")
     level        = Column(Integer, nullable=False, default=1)
     total_xp     = Column(Integer, nullable=False, default=0)
@@ -55,7 +39,6 @@ class User(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    # Relationship back to membership (a user can only be in one guild)
     membership = relationship(
         "GuildMember", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
@@ -70,20 +53,16 @@ class User(Base):
 
 
 class Guild(Base):
-    """A guild that hunters can join."""
-
     __tablename__ = "guilds"
 
     id          = Column(Integer, primary_key=True, index=True)
     name        = Column(String(100), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
-    emblem      = Column(String(8), nullable=False, default="⚔️")   # emoji emblem
+    emblem      = Column(String(8), nullable=False, default="⚔️")
     guild_rank  = Column(String(64), nullable=False, default="Bronze Guild")
     max_members = Column(Integer, nullable=False, default=50)
+    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-
-    # Relationship to membership records
     members = relationship(
         "GuildMember", back_populates="guild", cascade="all, delete-orphan"
     )
@@ -97,24 +76,18 @@ class Guild(Base):
 
 
 class GuildMember(Base):
-    """
-    Association table — one row per hunter-in-guild.
-    A hunter can only belong to ONE guild at a time (UniqueConstraint on user_id).
-    """
-
     __tablename__ = "guild_members"
 
-    id       = Column(Integer, primary_key=True, index=True)
-    user_id  = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    guild_id = Column(Integer, ForeignKey("guilds.id", ondelete="CASCADE"), nullable=False)
-    role     = Column(String(32), nullable=False, default="Member")  # Member | Officer | Master
+    id        = Column(Integer, primary_key=True, index=True)
+    user_id   = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    guild_id  = Column(Integer, ForeignKey("guilds.id", ondelete="CASCADE"), nullable=False)
+    role      = Column(String(32), nullable=False, default="Member")
     joined_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user  = relationship("User",  back_populates="membership")
     guild = relationship("Guild", back_populates="members")
 
     __table_args__ = (
-        # A hunter can only be in one guild
         UniqueConstraint("user_id", name="uq_guild_member_user"),
     )
 
