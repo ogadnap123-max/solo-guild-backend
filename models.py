@@ -4,7 +4,7 @@ models.py — SQLAlchemy ORM models for the Solo Leveling Guild system.
 
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime,
+    Column, Integer, String, Text, DateTime, Boolean,
     ForeignKey, UniqueConstraint, CheckConstraint,
 )
 from sqlalchemy.orm import relationship
@@ -24,7 +24,8 @@ class User(Base):
     id            = Column(Integer, primary_key=True, index=True)
     username      = Column(String(64), unique=True, nullable=False, index=True)
     email         = Column(String(128), unique=True, nullable=False)
-    password_hash = Column(String(128), nullable=False, default="")  # ← NEW
+    password_hash = Column(String(128), nullable=False, default="")
+    is_admin      = Column(Boolean, nullable=False, default=False)   # ← admin flag
 
     # RPG stats
     hunter_rank  = Column(String(32), nullable=False, default="E")
