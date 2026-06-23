@@ -72,27 +72,31 @@ ADMIN_PASSWORD = "admin123"
 ADMIN_EMAIL    = "admin@shadowsystem.local"
 
 def seed_admin(db: Session) -> None:
-    """Create the admin account on first startup if it doesn't exist."""
-    existing = db.query(models.User).filter(models.User.username == ADMIN_USERNAME).first()
-    if existing:
-        # Ensure the flag is set even on existing rows (safe re-run)
-        if not existing.is_admin:
-            existing.is_admin = True
-            db.commit()
-        return
-    admin = models.User(
-        username      = ADMIN_USERNAME,
-        email         = ADMIN_EMAIL,
-        password_hash = hash_password(ADMIN_PASSWORD),
-        is_admin      = True,
-        hunter_rank   = "S",
-        hunter_class  = "Shadow Monarch",
-        level         = 1,
-        total_xp      = 0,
-    )
-    db.add(admin)
-    db.commit()
-
+    """Create or update the admin account on startup."""
+    admin = db.query(models.User).filter(models.User.username == ADMIN_USERNAME).first()
+    
+    if admin:
+        # Enforce these values every time the app starts
+        admin.is_admin = True
+        admin.hunter_rank = "S"
+        admin.hunter_class = "Shadow Monarch"
+        db.commit()
+        db.refresh(admin)
+    else:
+        # Create only if it doesn't exist
+        admin = models.User(
+            username      = ADMIN_USERNAME,
+            email         = ADMIN_EMAIL,
+            password_hash = hash_password(ADMIN_PASSWORD),
+            is_admin      = True,
+            hunter_rank   = "S",
+            hunter_class  = "Shadow Monarch",
+            level         = 1,
+            total_xp      = 0,
+        )
+        db.add(admin)
+        db.commit()
+        
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     models.Base.metadata.create_all(bind=db_module.engine)
