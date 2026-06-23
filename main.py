@@ -67,9 +67,41 @@ def create_guild(payload: GuildCreate, db: Session = Depends(get_db)):
     db.refresh(guild)
     return guild
 
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "admin123"
+ADMIN_EMAIL    = "admin@shadowsystem.local"
+
+def seed_admin(db: Session) -> None:
+    """Create the admin account on first startup if it doesn't exist."""
+    existing = db.query(models.User).filter(models.User.username == ADMIN_USERNAME).first()
+    if existing:
+        # Ensure the flag is set even on existing rows (safe re-run)
+        if not existing.is_admin:
+            existing.is_admin = True
+            db.commit()
+        return
+    admin = models.User(
+        username      = ADMIN_USERNAME,
+        email         = ADMIN_EMAIL,
+        password_hash = hash_password(ADMIN_PASSWORD),
+        is_admin      = True,
+        hunter_rank   = "S",
+        hunter_class  = "Shadow Monarch",
+        level         = 1,
+        total_xp      = 0,
+    )
+    db.add(admin)
+    db.commit()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     models.Base.metadata.create_all(bind=db_module.engine)
+    # Seed admin account (idempotent — safe to run on every restart)
+    db = next(get_db())
+    try:
+        seed_admin(db)
+    finally:
+        db.close()
     yield
 
 app = FastAPI(title="Solo Leveling Guild API", version="1.0.0", lifespan=lifespan)
