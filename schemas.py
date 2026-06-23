@@ -34,6 +34,7 @@ class UserOut(BaseModel):
     hunter_class: str
     level:        int
     total_xp:     int
+    is_admin:     bool = False
     created_at:   Optional[datetime] = None
     updated_at:   Optional[datetime] = None
 
