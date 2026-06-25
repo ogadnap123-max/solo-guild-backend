@@ -4,8 +4,8 @@ models.py — SQLAlchemy ORM models for the Solo Leveling Guild system.
 
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, Boolean,
-    ForeignKey, UniqueConstraint, CheckConstraint,
+    Column, Integer, String, Text, DateTime, Boolean, Float,
+    ForeignKey, UniqueConstraint, CheckConstraint, JSON,
 )
 from sqlalchemy.orm import relationship
 from database import Base
@@ -32,6 +32,11 @@ class User(Base):
     hunter_class = Column(String(64), nullable=False, default="Fighter")
     level        = Column(Integer, nullable=False, default=1)
     total_xp     = Column(Integer, nullable=False, default=0)
+
+    # Cloud save — full game state JSON, stamped with client Date.now() ms.
+    # profile_updated_at mirrors _savedAt for last-write-wins conflict checks.
+    player_profile     = Column(JSON,  nullable=True,  default=None)
+    profile_updated_at = Column(Float, nullable=False, default=0.0)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
