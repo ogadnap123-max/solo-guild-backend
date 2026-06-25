@@ -1,12 +1,16 @@
 """
 main.py — FastAPI entry point for the Solo Leveling Guild API.
+Cloud save added: GET /users/{id}/profile  +  PUT /users/{id}/profile
 """
 
 from contextlib import asynccontextmanager
+from typing import Any, Dict, Optional
+
 from fastapi import FastAPI, APIRouter, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from passlib.context import CryptContext
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
@@ -22,6 +26,29 @@ def hash_password(plain: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
+
+
+# ═══════════════════════════════════════════════════════
+# CLOUD SAVE SCHEMAS
+# ═══════════════════════════════════════════════════════
+
+class ProfileIn(BaseModel):
+    """Body for PUT /users/{id}/profile — the full game state object."""
+    profile: Dict[str, Any]
+
+class ProfileOut(BaseModel):
+    """Response for GET /users/{id}/profile."""
+    user_id: int
+    profile: Optional[Dict[str, Any]]
+    updated_at: float   # _savedAt ms timestamp echoed back
+
+    class Config:
+        from_attributes = True
+
+
+# ═══════════════════════════════════════════════════════
+# USER ROUTES (unchanged)
+# ═══════════════════════════════════════════════════════
 
 users_router = APIRouter(prefix="/users", tags=["Hunters"])
 
@@ -54,6 +81,64 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"Hunter id={user_id} not found.")
     return user
 
+
+# ═══════════════════════════════════════════════════════
+# CLOUD SAVE ROUTES
+# ═══════════════════════════════════════════════════════
+
+@users_router.get("/{user_id}/profile", response_model=ProfileOut)
+def get_player_profile(user_id: int, db: Session = Depends(get_db)):
+    """
+    Fetch a hunter's cloud save.
+    Returns profile=null if the user exists but has never pushed a save.
+    """
+    user = db.get(models.User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Hunter not found.")
+
+    return ProfileOut(
+        user_id=user_id,
+        profile=user.player_profile,
+        updated_at=user.profile_updated_at or 0.0,
+    )
+
+
+@users_router.put("/{user_id}/profile", response_model=ProfileOut)
+def put_player_profile(user_id: int, body: ProfileIn, db: Session = Depends(get_db)):
+    """
+    Upsert a hunter's cloud save with last-write-wins conflict protection.
+
+    The frontend stamps body.profile['_savedAt'] = Date.now() before every
+    PUT. If the incoming _savedAt is older than what's already stored, the
+    write is silently rejected and the current stored profile is returned —
+    so a stale device can never overwrite newer progress.
+    """
+    user = db.get(models.User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Hunter not found.")
+
+    incoming_ts = float(body.profile.get("_savedAt", 0))
+    stored_ts   = float(user.profile_updated_at or 0)
+
+    if incoming_ts >= stored_ts:
+        # Incoming is newer (or same age) — accept the write
+        user.player_profile     = body.profile
+        user.profile_updated_at = incoming_ts
+        db.commit()
+        db.refresh(user)
+
+    # Always return whatever is now authoritative on the server
+    return ProfileOut(
+        user_id=user_id,
+        profile=user.player_profile,
+        updated_at=user.profile_updated_at or 0.0,
+    )
+
+
+# ═══════════════════════════════════════════════════════
+# GUILD SEED ROUTE (unchanged)
+# ═══════════════════════════════════════════════════════
+
 guilds_seed_router = APIRouter(prefix="/guilds", tags=["Guilds"])
 
 @guilds_seed_router.post("/", response_model=GuildOut, status_code=201)
@@ -67,40 +152,46 @@ def create_guild(payload: GuildCreate, db: Session = Depends(get_db)):
     db.refresh(guild)
     return guild
 
+
+# ═══════════════════════════════════════════════════════
+# ADMIN SEED (unchanged)
+# ═══════════════════════════════════════════════════════
+
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "admin123"
 ADMIN_EMAIL    = "admin@shadowsystem.local"
 
 def seed_admin(db: Session) -> None:
-    """Create or update the admin account on startup."""
-    admin = db.query(models.User).filter(models.User.username == ADMIN_USERNAME).first()
-    
-    if admin:
-        # Enforce these values every time the app starts
-        admin.is_admin = True
-        admin.hunter_rank = "S"
-        admin.hunter_class = "Shadow Monarch"
-        db.commit()
-        db.refresh(admin)
-    else:
-        # Create only if it doesn't exist
-        admin = models.User(
-            username      = ADMIN_USERNAME,
-            email         = ADMIN_EMAIL,
-            password_hash = hash_password(ADMIN_PASSWORD),
-            is_admin      = True,
-            hunter_rank   = "S",
-            hunter_class  = "Shadow Monarch",
-            level         = 1,
-            total_xp      = 0,
-        )
-        db.add(admin)
-        db.commit()
-        
+    """Create the admin account on first startup if it doesn't exist."""
+    existing = db.query(models.User).filter(models.User.username == ADMIN_USERNAME).first()
+    if existing:
+        if not existing.is_admin:
+            existing.is_admin = True
+            db.commit()
+        return
+    admin = models.User(
+        username      = ADMIN_USERNAME,
+        email         = ADMIN_EMAIL,
+        password_hash = hash_password(ADMIN_PASSWORD),
+        is_admin      = True,
+        hunter_rank   = "S",
+        hunter_class  = "Shadow Monarch",
+        level         = 1,
+        total_xp      = 0,
+    )
+    db.add(admin)
+    db.commit()
+
+
+# ═══════════════════════════════════════════════════════
+# APP STARTUP
+# ═══════════════════════════════════════════════════════
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # create_all is idempotent — existing tables are untouched,
+    # new columns added to models.py are picked up here automatically.
     models.Base.metadata.create_all(bind=db_module.engine)
-    # Seed admin account (idempotent — safe to run on every restart)
     db = next(get_db())
     try:
         seed_admin(db)
