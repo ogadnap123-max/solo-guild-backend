@@ -18,6 +18,7 @@ import database as db_module
 from database import get_db
 from schemas import UserCreate, UserLogin, UserOut, GuildCreate, GuildOut
 from routers.guilds import router as guild_router
+from routers.admin import router as admin_router
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -207,6 +208,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 app.include_router(users_router)
 app.include_router(guilds_seed_router)
 app.include_router(guild_router)
+app.include_router(admin_router)
 
 @app.get("/")
 def root():
