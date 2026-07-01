@@ -15,6 +15,11 @@ DATABASE_URL = os.environ.get(
     "sqlite:////tmp/solo_guild.db"   # /tmp is always writable on Railway
 )
 
+# Railway/Heroku-style URLs sometimes use postgres:// — SQLAlchemy 1.4+/2.x requires postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+print(f"[database] Connecting via dialect: {DATABASE_URL.split('://')[0]}")
 # SQLite needs check_same_thread=False; Postgres doesn't need it but it's harmless
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
